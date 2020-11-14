@@ -1,0 +1,216 @@
+<html>
+<head>
+    <title>Alice</title>
+    <script src="js/jquery-3.4.1.min.js"></script>
+    <script src="js/sjcl.js"></script>
+    <script src="js/base64js.min.js"></script>
+    <script src="js/nacl-fast.js"></script>
+    <script src="js/recrypt-core-opt.js"></script>
+    <script src="js/hex.js"></script>
+
+    <!--<script src="recrypt-core-fastopt.js"></script>-->
+    <script>
+        function sha256Hash(hashBytes) {
+            var valueAsBits = sjcl.codec.base64.toBits(base64js.fromByteArray(hashBytes));
+            var hashed = sjcl.hash.sha256.hash(valueAsBits);
+            return base64js.toByteArray(sjcl.codec.base64.fromBits(hashed));
+        };
+
+        var randomByteGenerator = window.callbackToIO((resolve, reject) => {
+            resolve(window.crypto.getRandomValues(new Uint8Array(32)));
+        });
+
+        var signingFunction = function (privateSigningKey, message) {
+            return { bytes: nacl.sign.detached(message, privateSigningKey.bytes) };
+        };
+
+        var verifyFunction = function (publicSigningKey, message, signature) {
+            return nacl.sign.detached.verify(message, signature.bytes, publicSigningKey.bytes);
+        };
+
+        var API = new window.Api(randomByteGenerator, sha256Hash, signingFunction, verifyFunction);
+
+        var randomSeed = 1;
+        var aliceSigningKeys = nacl.sign.keyPair.fromSeed(sha256Hash(new Uint8Array([randomSeed++])));
+        var alicePublicSigningKey = { bytes: aliceSigningKeys.publicKey };
+        var alicePrivateSigningKey = { bytes: aliceSigningKeys.secretKey };
+
+
+        var aliceKey;
+        var encryptedValue;
+        var symmetricKey;
+
+
+
+        function genKeyPair(){
+            window.ioToFunc(
+                API.generateKeyPair,
+                console.error,
+                (keyResult) => {
+                    console.timeEnd('genkeypair');
+                    aliceKey = keyResult;
+                    $("#privateKey").val(serializePriaveKey(aliceKey.privateKey));
+                    $("#publicKey").val(serializePublicKey(aliceKey.publicKey));
+                    console.log(aliceKey);
+                }
+            )
+        }
+
+        // generate encryptable plaintext;
+        // use deriveSymmetricKey to derive a symmetric key from it
+        // that can be used to encrypt the actual content of messages
+        function generatePlaintext(){
+            window.ioToFunc(API.generatePlaintext,
+                console.error,
+                (genPlaintext) => {
+                    symmetricKey = genPlaintext;
+                    console.log("symmetricKey");
+                    $("#symmetricKey").val(serializePriaveKey(symmetricKey));
+                    console.log(genPlaintext);
+                }
+            )
+        }
+
+        function encrypt(){
+            window.ioToFunc(
+                API.encrypt(symmetricKey, aliceKey.publicKey, alicePublicSigningKey, alicePrivateSigningKey),
+                console.error,
+                (encValue) => {
+                    console.timeEnd('encrypt');
+                    encryptedValue = encValue;
+                    console.log("Encrypted:");
+                    $("#encValue").val(serializeEncByPublicKey(encValue));
+                    console.log(encValue);
+                }
+            );
+        }
+
+        function decrypt(){
+            window.ioToFunc(
+                API.decrypt(encryptedValue, aliceKey.privateKey),
+                console.error,
+                (decrypted) => {
+                    console.timeEnd('decrypt');
+                    console.log("Decrypted bytes:");
+                    console.log(decrypted)
+                    $("#decValue").val(serializePriaveKey(decrypted));
+                }
+            );
+        }
+
+
+
+
+        var bobKey;
+        var transformKey;
+
+        function generateTransformKey(){
+            var pk = deSerializePublicKey($("#bobPK").val());
+            console.log(aliceKey.publicKey);
+            console.log(pk);
+            var transSigningKeys = nacl.sign.keyPair.fromSeed(sha256Hash(new Uint8Array([randomSeed++])));
+            var transPublicSigningKey = { bytes: transSigningKeys.publicKey };
+            var transPrivateSigningKey = { bytes: transSigningKeys.secretKey };
+            window.ioToFunc(
+                API.generateTransformKey(aliceKey.privateKey, pk, transPublicSigningKey, transPrivateSigningKey),
+                console.error,
+                (tansKey) => {
+                    transformKey = tansKey;
+                    $("#transformkey").val(serializeTransformedKey(tansKey));
+                    console.log("Transform Key:");
+                    console.log(transformKey);
+                }
+            );
+        }
+
+        var transformed;
+
+        function transform(){
+            var proxySigningKeys = nacl.sign.keyPair.fromSeed(sha256Hash(new Uint8Array([randomSeed++])));
+            var proxyPublicSigningKey = { bytes: proxySigningKeys.publicKey };
+            var proxyPrivateSigningKey = { bytes: proxySigningKeys.secretKey };
+
+
+            window.ioToFunc(
+                API.transform(encryptedValue, transformKey, proxyPublicSigningKey, proxyPrivateSigningKey),
+                console.error,
+                (t) => {
+                    console.timeEnd('transform');
+                    transformed = t;
+                    console.log(t);
+                     $("#transformed").val(serializeTransformed(t));
+                    console.log("Transform Key:");
+                    console.log(transformKey);
+                }
+            );
+        }
+
+        function decryptTransformed(){
+            console.time('decrypt-transformed');
+            window.ioToFunc(
+                API.decrypt(transformed, aliceKey.privateKey),
+                console.error,
+                (decrypted) => {
+                    console.timeEnd('decrypt-transformed');
+                    console.log("Decrypted bytes:");
+                    console.log(decrypted.bytes);
+                }
+            );
+        }
+    </script>
+</head>
+<body>
+    <center><h1>Alice</h1></center>
+    <h3>Alice' private key</h3>
+    <textarea id="privateKey" cols="200" rows="1"></textarea><br>
+    <h3>Alice' publice key</h3>
+    <textarea id="publicKey" cols="200" rows="1"></textarea><br>
+    <p><button onClick="javascript:genKeyPair()">Generate Key Pair</button></p>
+
+
+    <br><hr><br>
+
+
+
+
+    <h3>Alice generates a plaintext (Symmetric key)</h3>
+    <textarea id="symmetricKey" cols="200" rows="4"></textarea>
+    <p><button onClick="javascript:generatePlaintext()">Generate Plaintext</button></p>
+    <br>
+ 
+
+    <h3>encrypted plaintext by Alice's public key</h3>
+    <textarea id="encValue" cols="200" rows="8"></textarea>
+    <p><button onClick="javascript:encrypt()">Encrypt</button></p>
+    <br>
+
+
+    <h3>decrypted plaintext by Alice's private key</h3>
+    <textarea id="decValue" cols="200" rows="4"></textarea><br>
+    <p><button onClick="javascript:decrypt()">Decrypt</button></p>
+    <br>
+
+
+
+
+
+
+
+
+    <center><h1>share encrypted plaintext to Bob</h1></center>
+    <h3>input Bob's public key (used to generate transformedKey)</h3>
+    <textarea id="bobPK" cols="200" rows="2"></textarea><br><br>
+
+    
+    <h3>transformedKey for proxy (generated by Alice's private key and Bob's public key)</h3>
+    <textarea id="transformkey" cols="200" rows="9"></textarea>
+    <p><button onClick="javascript:generateTransformKey()">generate transformedKey</button></p>
+    <br>
+
+    <h3>transformed for Bob</h3>
+    <textarea id="transformed" cols="200" rows="19"></textarea><br>
+    <p><button onClick="javascript:transform()">generate transformed</button></p>
+    <br><br>
+
+</body>
+</html>
