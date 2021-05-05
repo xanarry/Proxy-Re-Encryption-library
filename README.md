@@ -1,5 +1,5 @@
 # Proxy-Re-Encryption-library
-this Proxy Re-Encryption library based on https://github.com/IronCoreLabs/recrypt,  all the bytearray is the original libaray is converted to hex string, and **it's totally run in a web browser**.
+this Proxy Re-Encryption library based on https://github.com/IronCoreLabs/recrypt,  all the bytearray in the original libaray is converted to hex string, and **it's totally run in a web browser**.
 
 
 
